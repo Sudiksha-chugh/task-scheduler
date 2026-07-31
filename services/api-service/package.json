@@ -1,0 +1,23 @@
+{
+  "name": "@jobflow/api-service",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js",
+    "test": "jest",
+    "test:unit": "jest"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "express": "^5.1.0",
+    "ioredis": "^5.6.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.16.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5"
+  }
+}

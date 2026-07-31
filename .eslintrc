@@ -1,0 +1,33 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "browser": true,
+    "es2022": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "ignorePatterns": ["node_modules/", "dist/", "build/", "coverage/"],
+  "overrides": [
+    {
+      "files": ["frontend/**/*.{js,jsx}"],
+      "env": {
+        "browser": true,
+        "node": false
+      }
+    },
+    {
+      "files": ["services/**/*.{js,jsx}", "packages/**/*.{js,jsx}"],
+      "env": {
+        "node": true,
+        "browser": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "jobflow",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "services/api-service",
+    "services/worker-service",
+    "services/scheduler-service",
+    "services/event-processor",
+    "packages/event-contracts",
+    "packages/test-support",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint . --ext .js,.jsx",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  }
+}
