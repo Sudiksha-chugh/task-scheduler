@@ -3,13 +3,19 @@ const { AuthError } = require('../utils/errors');
 
 async function requireAuth(req, res, next) {
   try {
+    let token = null;
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AuthError('Missing or invalid authorization header');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice('Bearer '.length);
+    } else if (req.query && req.query.token) {
+      token = req.query.token;
     }
 
-    const token = authHeader.slice('Bearer '.length);
+    if (!token) {
+      throw new AuthError('Missing or invalid authorization token');
+    }
+
     const payload = authService.verifyAccessToken(token);
 
     req.user = {

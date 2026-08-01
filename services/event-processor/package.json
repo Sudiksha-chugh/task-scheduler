@@ -1,5 +1,22 @@
 {
   "name": "@jobflow/event-processor",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js",
+    "test": "jest",
+    "test:unit": "jest"
+  },
+  "dependencies": {
+    "bullmq": "^5.41.6",
+    "ioredis": "^5.6.1",
+    "mongoose": "^8.16.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5",
+    "mongodb-memory-server": "^10.1.4"
+  }
 }

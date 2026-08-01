@@ -15,9 +15,11 @@
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.4",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "bullmq": "^5.41.6"
   },
   "devDependencies": {
-    "jest": "^30.0.5"
+    "jest": "^30.0.5",
+    "mongodb-memory-server": "^10.1.4"
   }
 }

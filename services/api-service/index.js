@@ -2,11 +2,14 @@ const { createApp } = require('./src/app');
 const { connectDb } = require('./src/config/db');
 const { connectRedis } = require('./src/config/redis');
 const { loadEnv } = require('./src/config/env');
+const { startOutboxPublisher } = require('./src/outbox/publisher');
 
 async function start() {
   const env = loadEnv();
   await connectDb();
   await connectRedis();
+
+  startOutboxPublisher();
 
   const app = createApp();
 
