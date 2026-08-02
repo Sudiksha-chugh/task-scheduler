@@ -3,6 +3,41 @@ const { getRedisClient } = require('../config/redis');
 
 let defaultExecutionQueue = null;
 
+async function publishMonitoringEvent(redis, event) {
+  try {
+    if (redis && typeof redis.publish === 'function') {
+      await redis.publish('monitoring:events', JSON.stringify(event));
+    }
+  } catch (err) {
+    console.error('Failed to publish monitoring event from DAG engine:', err.message);
+  }
+}
+
+function getMonitoringEventsHelper() {
+  try {
+    return require('../../../api-service/src/utils/monitoringEvents');
+  } catch {
+    return null;
+  }
+}
+
+async function publishWorkflowRunStatus(run, status, options = {}) {
+  const monitoringEvents = getMonitoringEventsHelper();
+  if (!monitoringEvents) {
+    return;
+  }
+
+  const redis = options.redis || getRedisClient();
+  await publishMonitoringEvent(
+    redis,
+    monitoringEvents.buildWorkflowRunEvent({
+      workflowRunId: run._id,
+      tenantId: options.tenantId,
+      status,
+    }),
+  );
+}
+
 function getExecutionQueue(customQueue) {
   if (customQueue) {
     return customQueue;
@@ -93,6 +128,7 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
   if (run.status === 'PENDING') {
     run.status = 'RUNNING';
     await run.save();
+    await publishWorkflowRunStatus(run, run.status, options);
   }
 
   // If completed node succeeded, attempt fan-out to downstream nodes
@@ -133,13 +169,29 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
             existingChildNode.status = 'PENDING';
             await existingChildNode.save();
           } else {
-            await NodeExecution.create({
+            const createdNodeExecution = await NodeExecution.create({
               workflowRun: run._id,
               nodeId: childId,
               job: childJobId,
               execution: childExecution._id,
               status: 'PENDING',
             });
+
+            const monitoringEvents = getMonitoringEventsHelper();
+            if (monitoringEvents) {
+              const redis = options.redis || getRedisClient();
+              await publishMonitoringEvent(
+                redis,
+                monitoringEvents.buildNodeExecutionEvent({
+                  workflowRunId: run._id,
+                  nodeId: childId,
+                  jobId: childJobId,
+                  executionId: childExecution._id,
+                  tenantId: options.tenantId,
+                  status: createdNodeExecution.status,
+                }),
+              );
+            }
           }
 
           // Enqueue onto execution-queue
@@ -169,6 +221,7 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
   if (hasFailedNode) {
     run.status = 'FAILED';
     await run.save();
+    await publishWorkflowRunStatus(run, run.status, options);
     return;
   }
 
@@ -176,6 +229,7 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
   if (totalNodesInDef > 0 && successCount === totalNodesInDef) {
     run.status = 'SUCCESS';
     await run.save();
+    await publishWorkflowRunStatus(run, run.status, options);
   }
 }
 

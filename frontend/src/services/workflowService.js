@@ -12,6 +12,11 @@ export const workflowService = {
     return response.data;
   },
 
+  updateWorkflow: async (projectId, workflowId, workflowData) => {
+    const response = await api.put(`/projects/${projectId}/workflows/${workflowId}`, workflowData);
+    return response.data;
+  },
+
   triggerWorkflow: async (projectId, workflowId) => {
     const response = await api.post(`/projects/${projectId}/workflows/${workflowId}/trigger`);
     return response.data;

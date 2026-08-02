@@ -1,5 +1,10 @@
 {
   "name": "@jobflow/event-contracts",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "scripts": {
+    "build": "echo 'event-contracts build clean'",
+    "test:unit": "echo 'no unit tests'",
+    "test:integration": "echo 'no integration tests'"
+  }
 }

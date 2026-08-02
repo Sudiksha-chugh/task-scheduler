@@ -2,8 +2,6 @@ services:
   mongo:
     image: mongo:7
     command: ["--replSet", "rs0", "--bind_ip_all"]
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -25,8 +23,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -35,6 +31,72 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  api-service:
+    build:
+      context: .
+      dockerfile: services/api-service/Dockerfile
+    ports:
+      - "${API_PORT:-4005}:4000"
+    environment:
+      - PORT=4000
+      - MONGO_URI=mongodb://mongo:27017/jobflow
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=test_secret_min_32_characters_long
+      - CORS_ORIGIN=http://localhost:8081
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: services/worker-service/Dockerfile
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/jobflow
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler-service:
+    build:
+      context: .
+      dockerfile: services/scheduler-service/Dockerfile
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/jobflow
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  event-processor:
+    build:
+      context: .
+      dockerfile: services/event-processor/Dockerfile
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/jobflow
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      - api-service
 
 volumes:
   mongo_data:

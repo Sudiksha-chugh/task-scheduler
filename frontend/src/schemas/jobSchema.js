@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 function jsonStringField(label, { optional = false } = {}) {
   return z.string().superRefine((val, ctx) => {
-    if (!val.trim()) {
+    if (!val || !val.trim()) {
       if (optional) return;
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} is required` });
       return;
@@ -19,15 +19,15 @@ export const jobFormSchema = z
   .object({
     projectId: z.string().min(1, 'Project is required'),
     name: z.string().trim().min(1, 'Job name is required').max(200),
-    targetUrl: z.string().trim().url('Target URL must be valid'),
+    targetUrl: z.string().trim().url('Target URL must be a valid URL (e.g. https://example.com/webhook)'),
     httpMethod: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
     scheduleType: z.enum(['MANUAL', 'CRON', 'ONE_SHOT']),
     cronExpression: z.string().optional(),
     retryStrategy: z.enum(['EXPONENTIAL_BACKOFF', 'LINEAR', 'FIXED', 'NONE']),
-    retryMaxAttempts: z.coerce.number().int().min(0).max(10),
-    timeoutSeconds: z.coerce.number().int().min(1).max(300).optional(),
+    retryMaxAttempts: z.coerce.number().int().min(0, 'Max attempts cannot be negative').max(10),
+    timeoutSeconds: z.coerce.number().int().min(1, 'Timeout must be at least 1 second').max(300).optional(),
     enabled: z.boolean().optional(),
-    headersJson: jsonStringField('Headers'),
+    headersJson: jsonStringField('Headers', { optional: true }),
     bodyJson: jsonStringField('Payload body', { optional: true }),
   })
   .superRefine((data, ctx) => {
@@ -67,7 +67,7 @@ export function jobToFormValues(job) {
     retryMaxAttempts: job.retryMaxAttempts ?? 3,
     timeoutSeconds: job.timeoutSeconds ?? 30,
     enabled: job.enabled ?? true,
-    headersJson: job.headers ? JSON.stringify(job.headers, null, 2) : '{}',
+    headersJson: job.headers ? JSON.stringify(job.headers, null, 2) : '{\n  "Content-Type": "application/json"\n}',
     bodyJson: job.body != null ? JSON.stringify(job.body, null, 2) : '',
   };
 }
@@ -80,10 +80,11 @@ export function formValuesToJobPayload(values) {
     scheduleType: values.scheduleType,
     cronExpression: values.scheduleType === 'CRON' ? values.cronExpression : undefined,
     retryStrategy: values.retryStrategy,
-    retryMaxAttempts: values.retryMaxAttempts,
-    timeoutSeconds: values.timeoutSeconds,
-    enabled: values.enabled,
-    headers: values.headersJson.trim() ? JSON.parse(values.headersJson) : {},
-    body: values.bodyJson.trim() ? JSON.parse(values.bodyJson) : null,
+    retryMaxAttempts: Number(values.retryMaxAttempts),
+    timeoutSeconds: Number(values.timeoutSeconds),
+    enabled: values.enabled ?? true,
+    headers: values.headersJson && values.headersJson.trim() ? JSON.parse(values.headersJson) : {},
+    body: values.bodyJson && values.bodyJson.trim() ? JSON.parse(values.bodyJson) : null,
   };
 }
+

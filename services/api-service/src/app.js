@@ -5,6 +5,7 @@ const projectRoutes = require('./routes/projectRoutes');
 const jobRoutes = require('./routes/jobRoutes');
 const projectJobRoutes = require('./routes/projectJobRoutes');
 const executionRoutes = require('./routes/executionRoutes');
+const workflowRoutes = require('./routes/workflowRoutes');
 const { AppError } = require('./utils/errors');
 
 function createApp() {
@@ -20,6 +21,7 @@ function createApp() {
   app.use('/api/v1/monitoring', monitoringRoutes);
   app.use('/api/v1/projects', projectRoutes);
   app.use('/api/v1/projects/:projectId/jobs', projectJobRoutes);
+  app.use('/api/v1/projects/:projectId/workflows', workflowRoutes);
   app.use('/api/v1/jobs', jobRoutes);
   app.use('/api/v1/executions', executionRoutes);
 

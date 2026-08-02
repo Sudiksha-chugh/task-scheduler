@@ -1,5 +1,17 @@
 {
   "name": "@jobflow/scheduler-service",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js",
+    "test": "jest",
+    "test:unit": "jest --testPathIgnorePatterns=integration --passWithNoTests",
+    "test:integration": "jest --testPathPatterns=integration --passWithNoTests",
+    "build": "echo 'scheduler-service build clean'"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5"
+  }
 }

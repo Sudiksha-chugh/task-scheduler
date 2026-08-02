@@ -17,6 +17,9 @@
   "scripts": {
     "lint": "eslint . --ext .js,.jsx",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   }
 }

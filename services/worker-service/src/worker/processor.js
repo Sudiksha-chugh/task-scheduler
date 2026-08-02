@@ -27,6 +27,37 @@ function getResultQueue(customQueue) {
   return defaultResultQueue;
 }
 
+function getMonitoringEventsHelper() {
+  try {
+    return require('../../../services/api-service/src/utils/monitoringEvents');
+  } catch {
+    try {
+      return require('../../../api-service/src/utils/monitoringEvents');
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function publishWorkflowNodeStatus(redis, nodeExecution, status, tenantId, executionId) {
+  const monitoringEvents = getMonitoringEventsHelper();
+  if (!monitoringEvents || !nodeExecution) {
+    return;
+  }
+
+  await publishMonitoringEvent(
+    redis,
+    monitoringEvents.buildNodeExecutionEvent({
+      workflowRunId: nodeExecution.workflowRun,
+      nodeId: nodeExecution.nodeId,
+      jobId: nodeExecution.job,
+      executionId: executionId || nodeExecution.execution,
+      tenantId,
+      status,
+    }),
+  );
+}
+
 function getModels(options = {}) {
   if (options.models) {
     return options.models;
@@ -67,7 +98,7 @@ async function processExecutionJob(bullJob, options = {}) {
   const redis = options.redis || getRedisClient();
   const resultQueue = getResultQueue(options.resultQueue);
   const axiosClient = options.axios || defaultAxios;
-  const { Execution, Job } = getModels(options);
+  const { Execution, Job, NodeExecution } = getModels(options);
 
   const leaseTtlMs = options.leaseTtlMs || 30000;
   const heartbeatIntervalMs = options.heartbeatIntervalMs || 10000;
@@ -93,6 +124,9 @@ async function processExecutionJob(bullJob, options = {}) {
 
   // Load Job details to get tenantId if available
   const jobDoc = await Job.findById(executionDoc.job || jobId);
+  const nodeExecutionDoc = NodeExecution
+    ? await NodeExecution.findOne({ execution: executionDoc._id })
+    : null;
   let tenantId = options.tenantId || (data.tenantId || (data.payload && data.payload.tenantId));
 
   if (!tenantId && jobDoc && jobDoc.project) {
@@ -122,6 +156,17 @@ async function processExecutionJob(bullJob, options = {}) {
     fencingToken,
     timestamp: Date.now(),
   });
+  if (nodeExecutionDoc) {
+    nodeExecutionDoc.status = 'LEASED';
+    await nodeExecutionDoc.save();
+    await publishWorkflowNodeStatus(
+      redis,
+      nodeExecutionDoc,
+      'LEASED',
+      tenantId,
+      executionDoc._id,
+    );
+  }
 
   executionDoc.status = 'RUNNING';
   await executionDoc.save();
@@ -135,6 +180,17 @@ async function processExecutionJob(bullJob, options = {}) {
     fencingToken,
     timestamp: Date.now(),
   });
+  if (nodeExecutionDoc) {
+    nodeExecutionDoc.status = 'RUNNING';
+    await nodeExecutionDoc.save();
+    await publishWorkflowNodeStatus(
+      redis,
+      nodeExecutionDoc,
+      'RUNNING',
+      tenantId,
+      executionDoc._id,
+    );
+  }
 
   if (!jobDoc) {
     console.error(`Job for execution ${executionId} not found in database.`);

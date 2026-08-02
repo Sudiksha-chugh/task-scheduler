@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [services/api-service, services/worker-service, services/scheduler-service, services/event-processor, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint --workspace=${{ matrix.workspace }}
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace: [services/api-service, services/worker-service, services/scheduler-service, services/event-processor]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit --workspace=${{ matrix.workspace }}
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      MONGO_URI: mongodb://localhost:27017/jobflow_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test_secret_min_32_characters_long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration --workspace=services/api-service
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=frontend
+      - run: npx tsc --noEmit --skipLibCheck --workspace=frontend
+        if: false # enable if TS adopted later

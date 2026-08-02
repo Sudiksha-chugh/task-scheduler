@@ -163,7 +163,28 @@ async function processEventResult(bullJob, options = {}) {
     nodeExecution.status = execution.status;
     await nodeExecution.save();
 
-    await processDagOnNodeCompletion(nodeExecution, options);
+    let monitoringEvents;
+    try {
+      monitoringEvents = require('../../../api-service/src/utils/monitoringEvents');
+    } catch {
+      monitoringEvents = null;
+    }
+
+    if (monitoringEvents) {
+      await publishMonitoringEvent(
+        redis,
+        monitoringEvents.buildNodeExecutionEvent({
+          workflowRunId: nodeExecution.workflowRun,
+          nodeId: nodeExecution.nodeId,
+          jobId: nodeExecution.job,
+          executionId: execution._id,
+          tenantId,
+          status: nodeExecution.status,
+        }),
+      );
+    }
+
+    await processDagOnNodeCompletion(nodeExecution, { ...options, redis, tenantId });
   }
 
   return {
