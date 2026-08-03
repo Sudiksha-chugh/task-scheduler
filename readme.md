@@ -1,6 +1,6 @@
 # JobFlow — MERN Job Scheduling & Workflow Orchestration Platform
 
-A MERN + JavaScript architecture : multi-tenant job scheduling, cron dispatch, DAG workflows, and real-time monitoring — built entirely on the Node.js/JS ecosystem instead of Spring Boot/Java/Next.js.
+A MERN + JavaScript architecture : multi-tenant job scheduling, cron dispatch, DAG workflows, and real-time monitoring — built entirely on the Node.js/JS ecosystem.
 
 ---
 
