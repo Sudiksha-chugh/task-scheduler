@@ -1,10 +1,11 @@
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const { loadEnv } = require('../config/env');
 const { getRedisClient } = require('../config/redis');
-const { User } = require('../models');
-const { AuthError } = require('../utils/errors');
+const { User, Tenant } = require('../models');
+const { AuthError, AppError } = require('../utils/errors');
 
 const BCRYPT_ROUNDS = 12;
 const REVOKED_REFRESH_PREFIX = 'auth:refresh:revoked:';
@@ -138,6 +139,71 @@ async function verifyPassword(password, passwordHash) {
   return bcrypt.compare(password, passwordHash);
 }
 
+function slugifyTenantName(name) {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const suffix = crypto.randomBytes(3).toString('hex');
+  return base ? `${base}-${suffix}` : suffix;
+}
+
+/**
+ * Registers a new tenant and its first user (role OWNER), transactionally.
+ * This is the only way a Tenant/User can come into existence -- there is
+ * no other signup path.
+ */
+async function register({ tenantName, email, password }) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const existing = await User.findOne({ email: normalizedEmail }).session(session);
+    if (existing) {
+      throw new AppError('An account with this email already exists', 409, 'CONFLICT');
+    }
+
+    const slug = slugifyTenantName(tenantName);
+    const passwordHash = await hashPassword(password);
+
+    const [tenant] = await Tenant.create(
+      [{ name: tenantName.trim(), slug }],
+      { session },
+    );
+
+    const [user] = await User.create(
+      [
+        {
+          email: normalizedEmail,
+          passwordHash,
+          tenant: tenant._id,
+          role: 'OWNER',
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+
+    const accessToken = generateAccessToken(user);
+    const refresh = generateRefreshToken(user);
+
+    return {
+      accessToken,
+      refreshToken: refresh.token,
+      user: sanitizeUser(user),
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
 async function login({ email, password }) {
   const normalizedEmail = email.trim().toLowerCase();
   const user = await User.findOne({ email: normalizedEmail });
@@ -193,6 +259,7 @@ async function logout({ refreshToken }) {
 }
 
 module.exports = {
+  register,
   login,
   refresh,
   logout,

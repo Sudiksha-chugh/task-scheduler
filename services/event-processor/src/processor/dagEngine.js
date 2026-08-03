@@ -1,5 +1,7 @@
+const mongoose = require('mongoose');
 const { Queue } = require('bullmq');
 const { getRedisClient } = require('../config/redis');
+const { getOutbox } = require('../outbox');
 
 let defaultExecutionQueue = null;
 
@@ -38,6 +40,8 @@ async function publishWorkflowRunStatus(run, status, options = {}) {
   );
 }
 
+// Kept for test compatibility (options.onEnqueue can still be passed to bypass
+// the outbox in tests); not used on the normal production path anymore.
 function getExecutionQueue(customQueue) {
   if (customQueue) {
     return customQueue;
@@ -67,9 +71,6 @@ function getModels(options = {}) {
   }
 }
 
-/**
- * Returns all predecessor node IDs for a given nodeId from the DAG definition.
- */
 function getPredecessorNodeIds(definition = {}, nodeId) {
   const edges = definition.edges || [];
   return edges
@@ -77,9 +78,6 @@ function getPredecessorNodeIds(definition = {}, nodeId) {
     .map((edge) => String(edge.source));
 }
 
-/**
- * Returns all downstream child node IDs for a given nodeId from the DAG definition.
- */
 function getDownstreamNodeIds(definition = {}, nodeId) {
   const edges = definition.edges || [];
   return edges
@@ -87,9 +85,6 @@ function getDownstreamNodeIds(definition = {}, nodeId) {
     .map((edge) => String(edge.target));
 }
 
-/**
- * Checks if all predecessor nodes for a given nodeId have status === 'SUCCESS'.
- */
 async function allPredecessorsSucceeded(workflowRunId, nodeId, definition, models) {
   const predecessorIds = getPredecessorNodeIds(definition, nodeId);
   if (predecessorIds.length === 0) {
@@ -110,33 +105,98 @@ async function allPredecessorsSucceeded(workflowRunId, nodeId, definition, model
 }
 
 /**
- * Handles DAG workflow node completion:
- * 1) Enqueues downstream children if all their predecessors succeeded.
- * 2) Marks WorkflowRun status SUCCESS/FAILED when appropriate.
+ * Creates the child Execution (+ NodeExecution) and dispatches it via the
+ * outbox pattern -- Execution/NodeExecution writes and the OutboxEvent that
+ * will eventually push it onto execution-queue all happen in one Mongo
+ * transaction, so a crash mid-fan-out can't leave an orphaned PENDING
+ * execution that nothing will ever pick up.
  */
+async function createAndDispatchChildExecution(run, childId, childJobId, existingChildNode, options) {
+  const { Execution, NodeExecution } = getModels(options);
+  const { createOutboxEvent } = getOutbox(options);
+
+  const session = options.session || (await mongoose.startSession());
+  const ownsSession = !options.session;
+  if (ownsSession) session.startTransaction();
+
+  let childExecution;
+  let createdNodeExecution = null;
+
+  try {
+    [childExecution] = await Execution.create(
+      [{ job: childJobId, status: 'PENDING' }],
+      { session },
+    );
+
+    if (existingChildNode) {
+      existingChildNode.execution = childExecution._id;
+      existingChildNode.status = 'PENDING';
+      await existingChildNode.save({ session });
+    } else {
+      [createdNodeExecution] = await NodeExecution.create(
+        [
+          {
+            workflowRun: run._id,
+            nodeId: childId,
+            job: childJobId,
+            execution: childExecution._id,
+            status: 'PENDING',
+          },
+        ],
+        { session },
+      );
+    }
+
+    const payload = {
+      executionId: childExecution._id.toString(),
+      jobId: childJobId.toString(),
+    };
+
+    if (options.onEnqueue) {
+      // test hook -- bypasses outbox, calls the provided function directly
+      await options.onEnqueue(payload);
+    } else {
+      await createOutboxEvent(
+        {
+          aggregateType: 'Execution',
+          aggregateId: childExecution._id,
+          eventType: 'EXECUTION_CREATED',
+          payload,
+        },
+        session,
+      );
+    }
+
+    if (ownsSession) await session.commitTransaction();
+  } catch (err) {
+    if (ownsSession) await session.abortTransaction();
+    throw err;
+  } finally {
+    if (ownsSession) session.endSession();
+  }
+
+  return { childExecution, createdNodeExecution };
+}
+
 async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
   const models = getModels(options);
-  const { WorkflowRun, NodeExecution, Execution } = models;
-  const executionQueue = getExecutionQueue(options.executionQueue);
+  const { WorkflowRun, NodeExecution } = models;
 
   const run = await WorkflowRun.findById(nodeExecutionDoc.workflowRun);
   if (!run) {
     return;
   }
 
-  // Update WorkflowRun status to RUNNING if it's currently PENDING
   if (run.status === 'PENDING') {
     run.status = 'RUNNING';
     await run.save();
     await publishWorkflowRunStatus(run, run.status, options);
   }
 
-  // If completed node succeeded, attempt fan-out to downstream nodes
   if (nodeExecutionDoc.status === 'SUCCESS') {
     const downstreamIds = getDownstreamNodeIds(run.definition, nodeExecutionDoc.nodeId);
 
     for (const childId of downstreamIds) {
-      // Check if child node is already enqueued/running/finished
       const existingChildNode = await NodeExecution.findOne({
         workflowRun: run._id,
         nodeId: childId,
@@ -148,7 +208,6 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
 
       const predsDone = await allPredecessorsSucceeded(run._id, childId, run.definition, models);
       if (predsDone && (!existingChildNode || !existingChildNode.execution)) {
-        // Find child node spec from definition
         const nodesList = run.definition.nodes || [];
         const childNodeSpec = nodesList.find((n) => String(n.id) === String(childId));
         const childJobId = childNodeSpec
@@ -156,27 +215,15 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
           : null;
 
         if (childJobId) {
-          // Create new Execution for child node
-          const childExecution = new Execution({
-            job: childJobId,
-            status: 'PENDING',
-          });
-          await childExecution.save();
+          const { childExecution, createdNodeExecution } = await createAndDispatchChildExecution(
+            run,
+            childId,
+            childJobId,
+            existingChildNode,
+            options,
+          );
 
-          // Create or update NodeExecution
-          if (existingChildNode) {
-            existingChildNode.execution = childExecution._id;
-            existingChildNode.status = 'PENDING';
-            await existingChildNode.save();
-          } else {
-            const createdNodeExecution = await NodeExecution.create({
-              workflowRun: run._id,
-              nodeId: childId,
-              job: childJobId,
-              execution: childExecution._id,
-              status: 'PENDING',
-            });
-
+          if (createdNodeExecution) {
             const monitoringEvents = getMonitoringEventsHelper();
             if (monitoringEvents) {
               const redis = options.redis || getRedisClient();
@@ -193,24 +240,11 @@ async function processDagOnNodeCompletion(nodeExecutionDoc, options = {}) {
               );
             }
           }
-
-          // Enqueue onto execution-queue
-          const payload = {
-            executionId: childExecution._id.toString(),
-            jobId: childJobId.toString(),
-          };
-
-          if (options.onEnqueue) {
-            await options.onEnqueue(payload);
-          } else {
-            await executionQueue.add('execution', payload);
-          }
         }
       }
     }
   }
 
-  // Evaluate overall WorkflowRun status
   const allNodeExecutions = await NodeExecution.find({ workflowRun: run._id });
   const totalNodesInDef = (run.definition && run.definition.nodes && run.definition.nodes.length) || 0;
 

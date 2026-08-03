@@ -1,7 +1,9 @@
+const mongoose = require('mongoose');
 const { Queue } = require('bullmq');
 const { calculateRetryBehavior } = require('./retryPolicy');
 const { processDagOnNodeCompletion } = require('./dagEngine');
 const { getRedisClient } = require('../config/redis');
+const { getOutbox } = require('../outbox');
 
 let defaultExecutionQueue = null;
 
@@ -15,6 +17,9 @@ async function publishMonitoringEvent(redis, event) {
   }
 }
 
+// Kept for test compatibility; not used on the normal production path anymore
+// (retries now go through the outbox so they get the same crash-safety
+// guarantee as every other dispatch path).
 function getExecutionQueue(customQueue) {
   if (customQueue) {
     return customQueue;
@@ -65,7 +70,6 @@ async function processEventResult(bullJob, options = {}) {
 
   const redis = options.redis || getRedisClient();
   const { Execution, Job, NodeExecution, Project } = getModels(options);
-  const executionQueue = getExecutionQueue(options.executionQueue);
 
   const execution = await Execution.findById(executionId);
   if (!execution) {
@@ -126,19 +130,47 @@ async function processEventResult(bullJob, options = {}) {
     );
 
     if (shouldRetry) {
-      execution.status = 'PENDING';
-      await execution.save();
+      // Execution save + outbox write happen in one transaction: if the
+      // process dies between them, we don't end up with an execution
+      // stuck at PENDING that nothing will ever pick back up.
+      const { createOutboxEvent } = getOutbox(options);
+      const session = options.session || (await mongoose.startSession());
+      const ownsSession = !options.session;
+      if (ownsSession) session.startTransaction();
 
-      const retryPayload = {
-        executionId: execution._id.toString(),
-        jobId: (execution.job || (job && job._id)).toString(),
-        tenantId,
-      };
+      try {
+        execution.status = 'PENDING';
+        await execution.save({ session });
 
-      if (options.onEnqueueRetry) {
-        await options.onEnqueueRetry(retryPayload, delayMs);
-      } else {
-        await executionQueue.add('execution', retryPayload, { delay: delayMs });
+        const retryPayload = {
+          executionId: execution._id.toString(),
+          jobId: (execution.job || (job && job._id)).toString(),
+          tenantId,
+          retry: true,
+          delayMs,
+        };
+
+        if (options.onEnqueueRetry) {
+          // test hook -- bypasses outbox, calls the provided function directly
+          await options.onEnqueueRetry(retryPayload, delayMs);
+        } else {
+          await createOutboxEvent(
+            {
+              aggregateType: 'Execution',
+              aggregateId: execution._id,
+              eventType: 'EXECUTION_CREATED',
+              payload: retryPayload,
+            },
+            session,
+          );
+        }
+
+        if (ownsSession) await session.commitTransaction();
+      } catch (err) {
+        if (ownsSession) await session.abortTransaction();
+        throw err;
+      } finally {
+        if (ownsSession) session.endSession();
       }
     } else {
       execution.status = nextStatus || 'DEAD';

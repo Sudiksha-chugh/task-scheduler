@@ -27,6 +27,11 @@ function getExecutionQueue(customQueue) {
  * Polls for unpublished OutboxEvents, pushes them to the "execution-queue" BullMQ queue,
  * and marks them as published.
  *
+ * If event.payload.delayMs is set (used by scheduler retries / event-processor
+ * retries for exponential/linear backoff), it's passed through as BullMQ's
+ * native `delay` option so retry timing is preserved even though dispatch
+ * now goes through the outbox.
+ *
  * @param {Object} [options]
  * @param {Object} [options.queue] - Custom or mock queue instance
  * @param {number} [options.batchSize=50] - Number of events per batch
@@ -48,14 +53,21 @@ async function pollOnce(options = {}) {
 
   for (const event of events) {
     try {
-      await queue.add(event.eventType, {
-        outboxId: event._id.toString(),
-        aggregateType: event.aggregateType,
-        aggregateId: event.aggregateId.toString(),
-        eventType: event.eventType,
-        payload: event.payload,
-        createdAt: event.createdAt,
-      });
+      const delayMs = event.payload && event.payload.delayMs;
+      const bullOptions = delayMs ? { delay: delayMs } : {};
+
+      await queue.add(
+        event.eventType,
+        {
+          outboxId: event._id.toString(),
+          aggregateType: event.aggregateType,
+          aggregateId: event.aggregateId.toString(),
+          eventType: event.eventType,
+          payload: event.payload,
+          createdAt: event.createdAt,
+        },
+        bullOptions,
+      );
 
       event.published = true;
       await event.save();
