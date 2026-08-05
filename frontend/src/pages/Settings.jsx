@@ -1,11 +1,66 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../providers/AuthProvider';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Shield, Key, Database, Cpu } from 'lucide-react';
+import { Dialog } from '../components/ui/Dialog';
+import { Badge } from '../components/ui/Badge';
+import { apiKeyService } from '../services/apiKeyService';
+import { Shield, Key, Database, Cpu, Copy, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react';
 
 export function Settings() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [revealedKey, setRevealedKey] = useState(null); // { key, apiKey } shown once after creation
+  const [copied, setCopied] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: apiKeyService.getApiKeys,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: apiKeyService.createApiKey,
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      setCreateOpen(false);
+      setNewKeyName('');
+      setRevealedKey(res); // { key, apiKey }
+    },
+    onError: (err) => {
+      setCreateError(err.response?.data?.error?.message || 'Failed to generate API key');
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: apiKeyService.revokeApiKey,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  });
+
+  const handleCreate = (e) => {
+    e.preventDefault();
+    setCreateError('');
+    createMutation.mutate({ name: newKeyName });
+  };
+
+  const handleCopy = async () => {
+    if (!revealedKey?.key) return;
+    try {
+      await navigator.clipboard.writeText(revealedKey.key);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard API unavailable; user can still select+copy manually
+    }
+  };
+
+  const apiKeys = data?.apiKeys || [];
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -58,14 +113,14 @@ export function Settings() {
             <Key className="w-5 h-5 text-amber-400" />
             <div>
               <CardTitle>API Access Tokens</CardTitle>
-              <CardDescription>JWT secret configuration and access token lifetimes.</CardDescription>
+              <CardDescription>Generate and manage API keys for programmatic access.</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between p-4 rounded-xl bg-zinc-900 border border-zinc-800">
             <div>
-              <p className="text-sm font-semibold text-zinc-200">Access Token Lifetime</p>
+              <p className="text-sm font-semibold text-zinc-200">JWT Access Token Lifetime</p>
               <p className="text-xs text-zinc-500">Configured in api-service env.js</p>
             </div>
             <span className="px-3 py-1 rounded-lg bg-zinc-800 font-mono text-xs text-amber-400 font-bold">
@@ -73,8 +128,47 @@ export function Settings() {
             </span>
           </div>
 
+          {/* API Keys List */}
+          <div className="space-y-2">
+            {isLoading ? (
+              <p className="text-xs text-zinc-500 p-4">Loading API keys...</p>
+            ) : apiKeys.length === 0 ? (
+              <p className="text-xs text-zinc-500 p-4 text-center border border-dashed border-zinc-800 rounded-xl">
+                No API keys yet. Generate one to access JobFlow programmatically.
+              </p>
+            ) : (
+              apiKeys.map((k) => (
+                <div
+                  key={k._id}
+                  className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900 border border-zinc-800"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-xs text-zinc-300">{k.keyPrefix}...</span>
+                    <span className="text-sm text-zinc-200 font-medium">{k.name}</span>
+                    {k.enabled ? (
+                      <Badge variant="green">Active</Badge>
+                    ) : (
+                      <Badge variant="gray">Revoked</Badge>
+                    )}
+                  </div>
+                  {k.enabled && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={Trash2}
+                      loading={revokeMutation.isPending && revokeMutation.variables === k._id}
+                      onClick={() => revokeMutation.mutate(k._id)}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
           <div className="flex justify-end">
-            <Button variant="outline" size="sm" onClick={() => alert('API Key generated')}>
+            <Button variant="outline" size="sm" icon={Key} onClick={() => setCreateOpen(true)}>
               Generate New API Key
             </Button>
           </div>
@@ -102,6 +196,71 @@ export function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Create Key Dialog */}
+      <Dialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Generate New API Key"
+        description="Give it a name so you can identify it later."
+      >
+        <form onSubmit={handleCreate} className="space-y-4">
+          {createError && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-medium">
+              {createError}
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+              Key Name
+            </label>
+            <input
+              type="text"
+              required
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder="e.g. CI Pipeline"
+              className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={createMutation.isPending}>
+              Generate Key
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Reveal Key Dialog -- shown exactly once, right after creation */}
+      <Dialog
+        open={Boolean(revealedKey)}
+        onClose={() => setRevealedKey(null)}
+        title="API Key Generated"
+        description="Copy this now — you won't be able to see it again."
+      >
+        <div className="space-y-4">
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>This key will only be shown once. Store it somewhere safe before closing this dialog.</span>
+          </div>
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+            <code className="flex-1 text-xs font-mono text-emerald-400 break-all">
+              {revealedKey?.key}
+            </code>
+            <Button variant="ghost" size="sm" icon={copied ? CheckCircle2 : Copy} onClick={handleCopy}>
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setRevealedKey(null)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

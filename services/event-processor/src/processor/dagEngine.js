@@ -16,11 +16,7 @@ async function publishMonitoringEvent(redis, event) {
 }
 
 function getMonitoringEventsHelper() {
-  try {
-    return require('../../../api-service/src/utils/monitoringEvents');
-  } catch {
-    return null;
-  }
+  return require('@jobflow/shared/utils/monitoringEvents');
 }
 
 async function publishWorkflowRunStatus(run, status, options = {}) {
@@ -58,17 +54,7 @@ function getModels(options = {}) {
   if (options.models) {
     return options.models;
   }
-  try {
-    return require('../../../api-service/src/models');
-  } catch (err) {
-    const mongoose = require('mongoose');
-    return {
-      WorkflowRun: mongoose.model('WorkflowRun'),
-      NodeExecution: mongoose.model('NodeExecution'),
-      Execution: mongoose.model('Execution'),
-      Job: mongoose.model('Job'),
-    };
-  }
+  return require('@jobflow/shared/models');
 }
 
 function getPredecessorNodeIds(definition = {}, nodeId) {

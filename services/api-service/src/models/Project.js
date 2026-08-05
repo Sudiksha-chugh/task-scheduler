@@ -1,17 +1,4 @@
-const mongoose = require('mongoose');
-
-const { Schema } = mongoose;
-
-const projectSchema = new Schema(
-  {
-    tenant: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },
-    name: { type: String, required: true, trim: true },
-    slug: { type: String, required: true, trim: true, lowercase: true },
-    description: { type: String, trim: true },
-  },
-  { timestamps: true },
-);
-
-projectSchema.index({ tenant: 1, slug: 1 }, { unique: true });
-
-module.exports = mongoose.model('Project', projectSchema);
+// Thin re-export -- the real schema now lives in the shared workspace
+// package so worker-service / scheduler-service / event-processor can
+// require it directly instead of reaching across service boundaries.
+module.exports = require('@jobflow/shared/models/Project');

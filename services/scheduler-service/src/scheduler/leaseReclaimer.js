@@ -1,6 +1,7 @@
+const mongoose = require('mongoose');
 const { getRedisClient } = require('../config/redis');
 const { getModels } = require('../models');
-const { getExecutionQueue } = require('./jobPoller');
+const { getOutbox } = require('../outbox');
 
 /**
  * Executions stuck in LEASED/RUNNING whose Mongo doc hasn't been touched
@@ -13,9 +14,9 @@ function staleCandidateCutoff(leaseTtlMs) {
 
 async function reclaimStaleLeases(options = {}) {
   const { Execution, Job } = getModels(options);
+  const { createOutboxEvent } = getOutbox(options);
   const redis = options.redis || getRedisClient();
   const leaseTtlMs = options.leaseTtlMs || 30000;
-  const queue = getExecutionQueue(options.executionQueue);
 
   const candidates = await Execution.find({
     status: { $in: ['LEASED', 'RUNNING'] },
@@ -46,18 +47,42 @@ async function reclaimStaleLeases(options = {}) {
       continue;
     }
 
-    execution.status = 'PENDING';
-    execution.retryCount += 1;
-    execution.fencingToken = null;
-    await execution.save();
+    const session = options.session || (await mongoose.startSession());
+    const ownsSession = !options.session;
+    if (ownsSession) session.startTransaction();
+    try {
+      execution.status = 'PENDING';
+      execution.retryCount += 1;
+      execution.fencingToken = undefined;
+      await execution.save({ session });
 
-    await queue.add('run-execution', {
-      executionId: execution._id.toString(),
-      jobId: execution.job.toString(),
-    });
+      await createOutboxEvent(
+        {
+          aggregateType: 'Execution',
+          aggregateId: execution._id,
+          eventType: 'EXECUTION_CREATED',
+          payload: {
+            executionId: execution._id.toString(),
+            jobId: execution.job.toString(),
+            targetUrl: job ? job.targetUrl : undefined,
+            retry: true,
+          },
+        },
+        session,
+      );
 
-    reclaimed += 1;
-    console.log(`Reclaimed stale lease for execution ${execution._id}; requeued (attempt ${execution.retryCount + 1}/${maxAttempts})`);
+      if (ownsSession) await session.commitTransaction();
+      reclaimed += 1;
+      console.log(
+        `Reclaimed stale lease for execution ${execution._id}; requeued via outbox ` +
+        `(attempt ${execution.retryCount + 1}/${maxAttempts})`,
+      );
+    } catch (err) {
+      if (ownsSession) await session.abortTransaction();
+      console.error(`Failed to requeue execution ${execution._id}:`, err.message);
+    } finally {
+      if (ownsSession) session.endSession();
+    }
   }
 
   return { reclaimed, deadLettered, checked: candidates.length };

@@ -1,24 +1,4 @@
-const mongoose = require('mongoose');
-
-const { Schema } = mongoose;
-
-const workflowRunSchema = new Schema(
-  {
-    workflowDefinition: {
-      type: Schema.Types.ObjectId,
-      ref: 'WorkflowDefinition',
-      required: true,
-      index: true,
-    },
-    status: {
-      type: String,
-      enum: ['PENDING', 'RUNNING', 'SUCCESS', 'FAILED'],
-      default: 'PENDING',
-      index: true,
-    },
-    definition: { type: Schema.Types.Mixed, required: true },
-  },
-  { timestamps: true },
-);
-
-module.exports = mongoose.model('WorkflowRun', workflowRunSchema);
+// Thin re-export -- the real schema now lives in the shared workspace
+// package so worker-service / scheduler-service / event-processor can
+// require it directly instead of reaching across service boundaries.
+module.exports = require('@jobflow/shared/models/WorkflowRun');

@@ -244,39 +244,62 @@ export function JobEditor() {
                   <option value="ONE_SHOT">One Shot</option>
                 </select>
               </div>
+{/* with this three-way branch (CRON / ONE_SHOT / MANUAL each get their
+// own field; timeout only makes sense for CRON/MANUAL since a one-shot
+// job's defining property is WHEN it fires, not a periodic timeout):*/}
 
-              {watchScheduleType === 'CRON' ? (
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
-                    Cron Expression *
-                  </label>
-                  <input
-                    type="text"
-                    {...register('cronExpression')}
-                    placeholder="*/5 * * * *"
-                    className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm font-mono text-purple-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                  {errors.cronExpression && (
-                    <p className="mt-1 text-xs text-rose-400">{errors.cronExpression.message}</p>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
-                    Timeout (Seconds)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="300"
-                    {...register('timeoutSeconds')}
-                    className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                  />
-                  {errors.timeoutSeconds && (
-                    <p className="mt-1 text-xs text-rose-400">{errors.timeoutSeconds.message}</p>
-                  )}
-                </div>
-              )}
+{watchScheduleType === 'CRON' ? (
+  <div>
+    <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+      Cron Expression *
+    </label>
+    <input
+      type="text"
+      {...register('cronExpression')}
+      placeholder="*/5 * * * *"
+      className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm font-mono text-purple-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+    />
+    {errors.cronExpression && (
+      <p className="mt-1 text-xs text-rose-400">{errors.cronExpression.message}</p>
+    )}
+  </div>
+) : watchScheduleType === 'ONE_SHOT' ? (
+  <div>
+    <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+      Run At *
+    </label>
+    <input
+      type="datetime-local"
+      {...register('runAt')}
+      className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm font-mono text-amber-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+    />
+    {errors.runAt && (
+      <p className="mt-1 text-xs text-rose-400">{errors.runAt.message}</p>
+    )}
+  </div>
+) : (
+  <div>
+    <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+      Timeout (Seconds)
+    </label>
+    <input
+      type="number"
+      min="1"
+      max="300"
+      {...register('timeoutSeconds')}
+      className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+    />
+    {errors.timeoutSeconds && (
+      <p className="mt-1 text-xs text-rose-400">{errors.timeoutSeconds.message}</p>
+    )}
+  </div>
+)}
+
+{/*Note: ONE_SHOT jobs still need a timeout too (the backend defaults it to
+// 30s if omitted from the payload, per jobBodySchema's .optional() on
+// timeoutSeconds) -- this just means the ONE_SHOT branch of the form
+// doesn't expose that field for editing. Fine for now; add a second field
+// later if per-job timeout tuning matters for one-shot jobs specifically.*/}
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">

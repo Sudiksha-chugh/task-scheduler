@@ -23,6 +23,7 @@ export const jobFormSchema = z
     httpMethod: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
     scheduleType: z.enum(['MANUAL', 'CRON', 'ONE_SHOT']),
     cronExpression: z.string().optional(),
+    runAt: z.string().optional(),
     retryStrategy: z.enum(['EXPONENTIAL_BACKOFF', 'LINEAR', 'FIXED', 'NONE']),
     retryMaxAttempts: z.coerce.number().int().min(0, 'Max attempts cannot be negative').max(10),
     timeoutSeconds: z.coerce.number().int().min(1, 'Timeout must be at least 1 second').max(300).optional(),
@@ -38,6 +39,27 @@ export const jobFormSchema = z
         message: 'Cron expression is required for CRON schedule type',
       });
     }
+    if (data.scheduleType === 'ONE_SHOT') {
+      if (!data.runAt) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['runAt'],
+          message: 'Run date/time is required for One Shot schedule type',
+        });
+      } else if (Number.isNaN(new Date(data.runAt).getTime())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['runAt'],
+          message: 'Run date/time must be valid',
+        });
+      } else if (new Date(data.runAt).getTime() <= Date.now()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['runAt'],
+          message: 'Run date/time must be in the future',
+        });
+      }
+    }
   });
 
 export const jobFormDefaults = {
@@ -47,6 +69,7 @@ export const jobFormDefaults = {
   httpMethod: 'POST',
   scheduleType: 'MANUAL',
   cronExpression: '*/5 * * * *',
+  runAt: '',
   retryStrategy: 'EXPONENTIAL_BACKOFF',
   retryMaxAttempts: 3,
   timeoutSeconds: 30,
@@ -63,6 +86,12 @@ export function jobToFormValues(job) {
     httpMethod: job.httpMethod || 'POST',
     scheduleType: job.scheduleType || 'MANUAL',
     cronExpression: job.cronExpression || '*/5 * * * *',
+    // nextRunAt is what the scheduler set for ONE_SHOT jobs; feed it back
+    // into the datetime-local input (which needs "YYYY-MM-DDTHH:mm", no
+    // seconds/timezone suffix) when editing an existing one-shot job.
+    runAt: job.scheduleType === 'ONE_SHOT' && job.nextRunAt
+      ? new Date(job.nextRunAt).toISOString().slice(0, 16)
+      : '',
     retryStrategy: job.retryStrategy || 'EXPONENTIAL_BACKOFF',
     retryMaxAttempts: job.retryMaxAttempts ?? 3,
     timeoutSeconds: job.timeoutSeconds ?? 30,
@@ -79,6 +108,11 @@ export function formValuesToJobPayload(values) {
     httpMethod: values.httpMethod,
     scheduleType: values.scheduleType,
     cronExpression: values.scheduleType === 'CRON' ? values.cronExpression : undefined,
+    // datetime-local gives "YYYY-MM-DDTHH:mm" with no timezone -- new Date()
+    // parses that as local time, .toISOString() converts to UTC for the API
+    runAt: values.scheduleType === 'ONE_SHOT' && values.runAt
+      ? new Date(values.runAt).toISOString()
+      : undefined,
     retryStrategy: values.retryStrategy,
     retryMaxAttempts: Number(values.retryMaxAttempts),
     timeoutSeconds: Number(values.timeoutSeconds),
@@ -87,4 +121,3 @@ export function formValuesToJobPayload(values) {
     body: values.bodyJson && values.bodyJson.trim() ? JSON.parse(values.bodyJson) : null,
   };
 }
-

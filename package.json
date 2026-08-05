@@ -9,8 +9,12 @@
     "services/event-processor",
     "packages/event-contracts",
     "packages/test-support",
-    "frontend"
+    "frontend",
+    "packages/*"
   ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=services/api-service"
+  },
   "engines": {
     "node": ">=20"
   },
