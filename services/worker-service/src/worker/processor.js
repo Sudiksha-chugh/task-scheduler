@@ -28,15 +28,7 @@ function getResultQueue(customQueue) {
 }
 
 function getMonitoringEventsHelper() {
-  try {
-    return require('../../../services/api-service/src/utils/monitoringEvents');
-  } catch {
-    try {
-      return require('../../../api-service/src/utils/monitoringEvents');
-    } catch {
-      return null;
-    }
-  }
+  return require('@jobflow/shared/utils/monitoringEvents');
 }
 
 async function publishWorkflowNodeStatus(redis, nodeExecution, status, tenantId, executionId) {
@@ -62,15 +54,7 @@ function getModels(options = {}) {
   if (options.models) {
     return options.models;
   }
-  try {
-    return require('../../../services/api-service/src/models');
-  } catch (err) {
-    const mongoose = require('mongoose');
-    return {
-      Execution: mongoose.model('Execution'),
-      Job: mongoose.model('Job'),
-    };
-  }
+  return require('@jobflow/shared/models');
 }
 
 /**

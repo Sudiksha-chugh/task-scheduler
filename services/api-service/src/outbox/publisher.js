@@ -54,20 +54,30 @@ async function pollOnce(options = {}) {
   for (const event of events) {
     try {
       const delayMs = event.payload && event.payload.delayMs;
-      const bullOptions = delayMs ? { delay: delayMs } : {};
 
-      await queue.add(
-        event.eventType,
-        {
+      if (delayMs) {
+        await queue.add(
+          event.eventType,
+          {
+            outboxId: event._id.toString(),
+            aggregateType: event.aggregateType,
+            aggregateId: event.aggregateId.toString(),
+            eventType: event.eventType,
+            payload: event.payload,
+            createdAt: event.createdAt,
+          },
+          { delay: delayMs },
+        );
+      } else {
+        await queue.add(event.eventType, {
           outboxId: event._id.toString(),
           aggregateType: event.aggregateType,
           aggregateId: event.aggregateId.toString(),
           eventType: event.eventType,
           payload: event.payload,
           createdAt: event.createdAt,
-        },
-        bullOptions,
-      );
+        });
+      }
 
       event.published = true;
       await event.save();

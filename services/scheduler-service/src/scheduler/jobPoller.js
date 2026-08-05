@@ -1,19 +1,7 @@
-const { Queue } = require('bullmq');
+const mongoose = require('mongoose');
 const parser = require('cron-parser');
-const { getRedisClient } = require('../config/redis');
 const { getModels } = require('../models');
-
-let executionQueue = null;
-
-function getExecutionQueue(customQueue) {
-  if (customQueue) return customQueue;
-  if (!executionQueue) {
-    executionQueue = new Queue('execution-queue', {
-      connection: getRedisClient(),
-    });
-  }
-  return executionQueue;
-}
+const { getOutbox } = require('../outbox');
 
 function computeNextRunAt(cronExpression, fromDate) {
   try {
@@ -25,10 +13,6 @@ function computeNextRunAt(cronExpression, fromDate) {
   }
 }
 
-/**
- * Atomically claims a single due job by matching its current nextRunAt.
- * Prevents two scheduler replicas from double-dispatching the same run.
- */
 async function claimJob(Job, job) {
   let update;
 
@@ -36,7 +20,6 @@ async function claimJob(Job, job) {
     const next = computeNextRunAt(job.cronExpression, new Date());
     update = { $set: { lastRunAt: new Date(), nextRunAt: next } };
   } else {
-    // ONE_SHOT: don't reschedule, disable after firing
     update = { $set: { lastRunAt: new Date(), nextRunAt: null, enabled: false } };
   }
 
@@ -51,26 +34,43 @@ async function claimJob(Job, job) {
 
 async function dispatchJob(job, options = {}) {
   const { Execution } = getModels(options);
-  const queue = getExecutionQueue(options.executionQueue);
+  const { createOutboxEvent } = getOutbox(options);
 
-  const execution = await Execution.create({
-    job: job._id,
-    status: 'PENDING',
-  });
+  const session = options.session || (await mongoose.startSession());
+  const ownsSession = !options.session;
+  if (ownsSession) session.startTransaction();
 
-  await queue.add('run-execution', {
-    executionId: execution._id.toString(),
-    jobId: job._id.toString(),
-  });
+  try {
+    const [execution] = await Execution.create(
+      [{ job: job._id, status: 'PENDING' }],
+      { session },
+    );
 
-  console.log(`Dispatched job ${job._id} -> execution ${execution._id}`);
-  return execution;
+    await createOutboxEvent(
+      {
+        aggregateType: 'Execution',
+        aggregateId: execution._id,
+        eventType: 'EXECUTION_CREATED',
+        payload: {
+          executionId: execution._id.toString(),
+          jobId: job._id.toString(),
+          targetUrl: job.targetUrl,
+        },
+      },
+      session,
+    );
+
+    if (ownsSession) await session.commitTransaction();
+    console.log(`Dispatched job ${job._id} -> execution ${execution._id} (via outbox)`);
+    return execution;
+  } catch (err) {
+    if (ownsSession) await session.abortTransaction();
+    throw err;
+  } finally {
+    if (ownsSession) session.endSession();
+  }
 }
 
-/**
- * Polls for enabled CRON/ONE_SHOT jobs whose nextRunAt has passed,
- * claims each atomically, and enqueues an execution for it.
- */
 async function pollDueJobs(options = {}) {
   const { Job } = getModels(options);
   const now = new Date();
@@ -87,7 +87,6 @@ async function pollDueJobs(options = {}) {
     try {
       const claimed = await claimJob(Job, job);
       if (!claimed) {
-        // another scheduler instance already claimed this run
         continue;
       }
       await dispatchJob(claimed, options);
@@ -110,4 +109,4 @@ function startJobPolling(options = {}) {
   return timer;
 }
 
-module.exports = { pollDueJobs, startJobPolling, computeNextRunAt, getExecutionQueue };
+module.exports = { pollDueJobs, startJobPolling, computeNextRunAt };

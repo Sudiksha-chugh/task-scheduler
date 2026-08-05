@@ -36,17 +36,7 @@ function getModels(options = {}) {
   if (options.models) {
     return options.models;
   }
-  try {
-    return require('../../../api-service/src/models');
-  } catch (err) {
-    const mongoose = require('mongoose');
-    return {
-      Execution: mongoose.model('Execution'),
-      Job: mongoose.model('Job'),
-      NodeExecution: mongoose.model('NodeExecution'),
-      WorkflowRun: mongoose.model('WorkflowRun'),
-    };
-  }
+  return require('@jobflow/shared/models');
 }
 
 /**
@@ -195,12 +185,7 @@ async function processEventResult(bullJob, options = {}) {
     nodeExecution.status = execution.status;
     await nodeExecution.save();
 
-    let monitoringEvents;
-    try {
-      monitoringEvents = require('../../../api-service/src/utils/monitoringEvents');
-    } catch {
-      monitoringEvents = null;
-    }
+    const monitoringEvents = require('@jobflow/shared/utils/monitoringEvents');
 
     if (monitoringEvents) {
       await publishMonitoringEvent(

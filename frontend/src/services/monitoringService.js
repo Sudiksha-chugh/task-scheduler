@@ -13,7 +13,9 @@ export const monitoringService = {
 
   subscribeToStream: (onMessage, onError) => {
     const token = localStorage.getItem('token');
-    const url = `/api/v1/monitoring/stream?token=${encodeURIComponent(token || '')}`;
+    const configuredBase = import.meta.env.VITE_API_BASE_URL;
+    const base = configuredBase ? configuredBase.replace(/\/$/, '') : '';
+    const url = `${base}/api/v1/monitoring/stream?token=${encodeURIComponent(token || '')}`;
     const eventSource = new EventSource(url);
 
     eventSource.onmessage = (event) => {

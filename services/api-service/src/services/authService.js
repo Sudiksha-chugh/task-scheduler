@@ -156,6 +156,9 @@ function slugifyTenantName(name) {
  */
 async function register({ tenantName, email, password }) {
   const normalizedEmail = email.trim().toLowerCase();
+  const effectiveTenantName = (tenantName && tenantName.trim())
+    ? tenantName.trim()
+    : normalizedEmail.split('@')[0];
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -166,11 +169,11 @@ async function register({ tenantName, email, password }) {
       throw new AppError('An account with this email already exists', 409, 'CONFLICT');
     }
 
-    const slug = slugifyTenantName(tenantName);
+    const slug = slugifyTenantName(effectiveTenantName);
     const passwordHash = await hashPassword(password);
 
     const [tenant] = await Tenant.create(
-      [{ name: tenantName.trim(), slug }],
+      [{ name: effectiveTenantName, slug }],
       { session },
     );
 

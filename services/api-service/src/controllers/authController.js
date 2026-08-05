@@ -36,8 +36,8 @@ async function register(req, res) {
   try {
     const { tenantName, email, password } = req.body;
 
-    if (!tenantName || !email || !password) {
-      throw new AppError('tenantName, email, and password are required', 400, 'VALIDATION_ERROR');
+    if (!email || !password) {
+      throw new AppError('email and password are required', 400, 'VALIDATION_ERROR');
     }
 
     if (String(password).length < 8) {

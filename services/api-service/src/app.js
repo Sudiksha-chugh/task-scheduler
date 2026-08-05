@@ -6,6 +6,7 @@ const jobRoutes = require('./routes/jobRoutes');
 const projectJobRoutes = require('./routes/projectJobRoutes');
 const executionRoutes = require('./routes/executionRoutes');
 const workflowRoutes = require('./routes/workflowRoutes');
+const apiKeyRoutes = require('./routes/apiKeyRoutes');
 const { AppError } = require('./utils/errors');
 
 function createApp() {
@@ -24,6 +25,7 @@ function createApp() {
   app.use('/api/v1/projects/:projectId/workflows', workflowRoutes);
   app.use('/api/v1/jobs', jobRoutes);
   app.use('/api/v1/executions', executionRoutes);
+  app.use('/api/v1/api-keys', apiKeyRoutes);
 
   app.use((err, _req, res, _next) => {
     if (err instanceof AppError) {

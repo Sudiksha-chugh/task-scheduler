@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Zap, Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Zap, Lock, Mail, Building2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../providers/AuthProvider';
 import { Button } from '../components/ui/Button';
 
 export function Login() {
   const [isRegister, setIsRegister] = useState(false);
+  const [tenantName, setTenantName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,7 @@ export function Login() {
 
     try {
       if (isRegister) {
-        await register({ email, password });
+        await register({ tenantName, email, password });
       } else {
         await login({ email, password });
       }
@@ -42,7 +43,7 @@ export function Login() {
     } catch (err) {
       // If demo login fails, attempt register with demo credentials
       try {
-        await register({ email: 'admin@jobflow.io', password: 'Password123!' });
+        await register({ tenantName: 'Demo Org', email: 'admin@jobflow.io', password: 'Password123!' });
         navigate('/');
       } catch (regErr) {
         setError(regErr.response?.data?.error?.message || 'Failed to authenticate demo user.');
@@ -98,6 +99,28 @@ export function Login() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isRegister && (
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
+                  Company / Tenant Name
+                </label>
+                <div className="relative">
+                  <Building2 className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    required
+                    value={tenantName}
+                    onChange={(e) => setTenantName(e.target.value)}
+                    placeholder="Acme Corp"
+                    className="w-full rounded-xl bg-zinc-900/90 border border-zinc-800 pl-10 pr-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  This creates a new isolated workspace — you'll be its first admin.
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
                 Email Address
