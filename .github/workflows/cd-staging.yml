@@ -1,67 +1,57 @@
-name: Deploy Staging
+name: Post-Deploy Smoke Test
+
+# Render and Vercel each auto-deploy on push to main using their own
+# build pipelines (render.yaml / vercel.json) -- this workflow does NOT
+# build or deploy anything. It runs after their deploys should have
+# landed and verifies the live services actually respond, since a
+# platform reporting "deploy successful" doesn't mean the app didn't
+# crash on boot (e.g. a missing env var, an uncaught startup error).
 
 on:
   push:
     branches: [main]
-
-concurrency:
-  group: staging
-  cancel-in-progress: true
+  workflow_dispatch: {}
 
 jobs:
-  build-and-push:
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'push'
+  smoke-test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [api-service, worker-service, scheduler-service, event-processor]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/${{ matrix.service }}/Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository }}/${{ matrix.service }}:${{ github.sha }},ghcr.io/${{ github.repository }}/${{ matrix.service }}:staging
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Wait for Render/Vercel deploys to roll out
+        run: sleep 90
 
-  build-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
-        with:
-          context: frontend
-          push: true
-          tags: ghcr.io/${{ github.repository }}/frontend:${{ github.sha }},ghcr.io/${{ github.repository }}/frontend:staging
-          build-args: |
-            VITE_API_BASE_URL=https://api-staging.jobflow.example.com
+      - name: Check api-service health endpoint
+        run: |
+          url="${{ vars.RENDER_API_URL }}/health"
+          echo "Checking $url"
+          status=$(curl -s -o /tmp/health.json -w "%{http_code}" "$url")
+          cat /tmp/health.json
+          if [ "$status" != "200" ]; then
+            echo "::error::api-service /health returned $status, expected 200"
+            exit 1
+          fi
 
-  deploy:
-    needs: [build-and-push, build-frontend]
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Deploy to staging (example: SSH + docker compose pull/up)
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            cd /opt/jobflow
-            docker compose pull
-            docker compose up -d
+      - name: Check frontend is reachable
+        run: |
+          url="${{ vars.VERCEL_FRONTEND_URL }}"
+          echo "Checking $url"
+          status=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+          if [ "$status" != "200" ]; then
+            echo "::error::frontend returned $status, expected 200"
+            exit 1
+          fi
+
+      - name: Check api-service accepts a real request (register validation)
+        run: |
+          # Hits /auth/register with a deliberately invalid body -- expects
+          # a clean 400 VALIDATION_ERROR, not a 500 or a connection failure.
+          # Confirms the API is actually booted, connected to Mongo/Redis,
+          # and routing requests -- not just that the process is alive.
+          url="${{ vars.RENDER_API_URL }}/api/v1/auth/register"
+          status=$(curl -s -o /tmp/register.json -w "%{http_code}" -X POST "$url" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          cat /tmp/register.json
+          if [ "$status" != "400" ]; then
+            echo "::error::expected 400 VALIDATION_ERROR from /auth/register with empty body, got $status"
+            exit 1
+          fi

@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "main": "index.js",
-  "@jobflow/shared": "*",
   "scripts": {
     "dev": "node index.js",
     "start": "node index.js",
@@ -13,13 +12,15 @@
     "build": "echo 'api-service build clean'"
   },
   "dependencies": {
+    "@jobflow/shared": "*",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.41.6",
+    "cron-parser": "^4.9.0",
     "express": "^5.1.0",
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.4",
-    "zod": "^3.25.76",
-    "bullmq": "^5.41.6"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "jest": "^30.0.5",

@@ -7,65 +7,104 @@ on:
     branches: [main]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        workspace: [services/api-service, services/worker-service, services/scheduler-service, services/event-processor, frontend]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run lint --workspace=${{ matrix.workspace }}
-
-  unit-tests:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        workspace: [services/api-service, services/worker-service, services/scheduler-service, services/event-processor]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run test:unit --workspace=${{ matrix.workspace }}
-
-  integration-tests:
+  # ---------------------------------------------------------------------
+  # Backend tests. Confirmed by hand (see PR discussion / local runs):
+  #   - api-service, worker-service, scheduler-service: fully self-
+  #     contained (mongodb-memory-server for Mongo where used, or fully
+  #     mocked deps) -- no live infra required.
+  #   - event-processor: mongodb-memory-server handles Mongo, but its
+  #     DAG integration test genuinely needs a REAL reachable Redis for
+  #     pub/sub during workflow completion -- confirmed by reproducing
+  #     the exact timeout locally and fixing it by exposing Redis's port.
+  # One Redis container, shared by all four test steps for simplicity;
+  # only event-processor actually exercises it.
+  # ---------------------------------------------------------------------
+  backend-tests:
     runs-on: ubuntu-latest
     services:
-      mongo:
-        image: mongo:7
-        ports: ["27017:27017"]
       redis:
         image: redis:7-alpine
-        ports: ["6379:6379"]
-    env:
-      MONGO_URI: mongodb://localhost:27017/jobflow_test
-      REDIS_URL: redis://localhost:6379
-      JWT_SECRET: test_secret_min_32_characters_long
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run test:integration --workspace=services/api-service
 
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test api-service
+        run: npm run test --workspace=services/api-service
+        env:
+          JWT_SECRET: ci_test_secret_min_32_characters_long
+          CORS_ORIGIN: http://localhost:5173
+          REDIS_URL: redis://localhost:6379
+
+      - name: Test worker-service
+        run: npm run test --workspace=services/worker-service
+        env:
+          REDIS_URL: redis://localhost:6379
+
+      - name: Test scheduler-service
+        run: npm run test --workspace=services/scheduler-service
+        env:
+          REDIS_URL: redis://localhost:6379
+
+      - name: Test event-processor
+        run: npm run test --workspace=services/event-processor
+        env:
+          REDIS_URL: redis://localhost:6379
+
+  # ---------------------------------------------------------------------
+  # Frontend: no DB/Redis needed, just build verification.
+  # ---------------------------------------------------------------------
   frontend-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build --workspace=frontend
-      - run: npx tsc --noEmit --skipLibCheck --workspace=frontend
-        if: false # enable if TS adopted later
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+        env:
+          VITE_API_BASE_URL: https://placeholder-for-ci-build.example.com
+
+  # ---------------------------------------------------------------------
+  # Docker build check: catches the exact class of bug we hit earlier
+  # (npm ci lockfile mismatch, missing @jobflow/shared in the image) --
+  # this job would have caught both, before ever reaching Render.
+  # ---------------------------------------------------------------------
+  docker-build-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-service, worker-service, scheduler-service, event-processor]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

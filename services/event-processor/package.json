@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "main": "index.js",
-  "@jobflow/shared": "*",
   "scripts": {
     "dev": "node index.js",
     "start": "node index.js",
@@ -13,6 +12,7 @@
     "build": "echo 'event-processor build clean'"
   },
   "dependencies": {
+    "@jobflow/shared": "*",
     "bullmq": "^5.41.6",
     "ioredis": "^5.6.1",
     "mongoose": "^8.16.4",
