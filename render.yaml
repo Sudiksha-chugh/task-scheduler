@@ -1,0 +1,94 @@
+services:
+  # ---------- API (public web service) ----------
+  - type: web
+    name: jobflow-api
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm run start --workspace=services/api-service
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: https://jobflow.vercel.app
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: jobflow-redis
+          property: connectionString
+
+  # ---------- Worker (BullMQ consumer, HTTP dispatch) ----------
+  - type: worker
+    name: jobflow-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm run start --workspace=services/worker-service
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: jobflow-redis
+          property: connectionString
+
+  # ---------- Scheduler (node-cron poller, lease reclaim) ----------
+  - type: worker
+    name: jobflow-scheduler
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm run start --workspace=services/scheduler-service
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: jobflow-redis
+          property: connectionString
+
+  # ---------- Event processor (result handling, DAG fan-out) ----------
+  - type: worker
+    name: jobflow-event-processor
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci
+    startCommand: npm run start --workspace=services/event-processor
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: jobflow-redis
+          property: connectionString
+
+  # ---------- Managed Redis ----------
+  - type: keyvalue
+    name: jobflow-redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
