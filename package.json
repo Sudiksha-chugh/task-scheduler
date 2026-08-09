@@ -3,27 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "workspaces": [
-    "services/api-service",
-    "services/worker-service",
-    "services/scheduler-service",
-    "services/event-processor",
-    "packages/event-contracts",
-    "packages/test-support",
-    "frontend",
-    "packages/*"
+    "services/*",
+    "packages/*",
+    "frontend"
   ],
   "scripts": {
-    "dev:api": "npm run dev --workspace=services/api-service"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "scripts": {
+    "dev:api": "npm run dev --workspace=services/api-service",
     "lint": "eslint . --ext .js,.jsx",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "npm run test:unit --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
