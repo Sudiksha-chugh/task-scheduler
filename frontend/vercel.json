@@ -1,0 +1,9 @@
+{
+  "buildCommand": "cd .. && npm ci && npm run build --workspace=frontend",
+  "outputDirectory": "dist",
+  "installCommand": "echo skip",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
