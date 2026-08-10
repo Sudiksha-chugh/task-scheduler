@@ -1,4 +1,6 @@
 const express = require('express');
+const cors = require('cors');
+const { loadEnv } = require('./config/env');
 const authRoutes = require('./routes/authRoutes');
 const monitoringRoutes = require('./routes/monitoringRoutes');
 const projectRoutes = require('./routes/projectRoutes');
@@ -11,6 +13,19 @@ const { AppError } = require('./utils/errors');
 
 function createApp() {
   const app = express();
+  const env = loadEnv();
+
+  // CORS_ORIGIN was defined in env.js and referenced in deployment config
+  // this whole time, but never actually wired into middleware -- Express
+  // sends no Access-Control-Allow-Origin header by default, so every
+  // cross-origin request (frontend on Vercel calling this API on Render)
+  // was being blocked by the browser regardless of the env var's value.
+  app.use(
+    cors({
+      origin: env.CORS_ORIGIN,
+      credentials: true,
+    }),
+  );
 
   app.use(express.json());
 
